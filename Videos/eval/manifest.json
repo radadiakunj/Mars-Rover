@@ -1,0 +1,20 @@
+[
+  {
+    "file": "01_mars_rover_rocks.mp4",
+    "role": "eval",
+    "description": "Mars rover rock field — rocks visible among terrain (recall test)",
+    "source": "GitHub Mars-Rock-Detection dataset"
+  },
+  {
+    "file": "05_rock_labeled_variety.mp4",
+    "role": "eval",
+    "description": "Labeled rock scenes only — clear rocks, mixed scales (primary validation clip)",
+    "source": "Training set (labeled rocks only)"
+  },
+  {
+    "file": "08_pi_closeup_rock_test.mp4",
+    "role": "eval",
+    "description": "Pi camera simulation — empty terrain then close-up rocks at 640x480 (best match for live IMX219 test)",
+    "source": "Built from training images: python scripts/build_pi_test_video.py"
+  }
+]

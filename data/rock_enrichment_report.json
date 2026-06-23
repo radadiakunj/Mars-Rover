@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-06-23T02:44:45.915799+00:00",
+  "train_images_total": 419,
+  "video_mining": [],
+  "nasa_diversity": [],
+  "retrained": true,
+  "model": "D:\\Kunj\\Rover_Info\\YOLO_Object_Detection_Cursor\\models\\mars_rock_detector.pt",
+  "next": "python scripts/detect_rocks.py --video Videos/samples/06_terrain_negative_test.mp4 --model models/mars_rock_detector.pt"
+}

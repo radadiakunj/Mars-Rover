@@ -1,0 +1,1510 @@
+================================================================================
+MARS ROCK DETECTION — IMPLEMENTATION GUIDE
+================================================================================
+Project: YOLO_Object_Detection_Cursor
+Purpose: Detect rocks on Mars-like terrain using YOLOv11, test on video, deploy
+         on Raspberry Pi 5 + IMX219-83 stereo camera.
+
+This file is the living technical reference for the project. Update it whenever
+new scripts, decisions, or concepts are introduced.
+
+Last updated: 2026-06-23 (file encyclopedia + presenter guide added)
+
+================================================================================
+0. EXECUTIVE SUMMARY (FOR MENTORS, EVALUATORS, INTERVIEWERS)
+================================================================================
+
+Problem
+-------
+Mars rover missions need to identify rocks in camera images for navigation and
+science. Manual inspection does not scale. The project builds an automated
+"object detection" system that finds rocks in images and video using deep
+learning (YOLOv11).
+
+Solution
+--------
+A complete pipeline was implemented:
+  1. Collect and label Mars-like rock images (YOLO format, single class: rock)
+  2. Train YOLOv11 detectors (nano for speed on Pi, medium for accuracy on PC)
+  3. Test on curated evaluation videos with bounding-box overlays
+  4. Deploy on Raspberry Pi 5 + IMX219 stereo camera for live rock detection
+  5. Optional export to ONNX for lighter/faster inference on embedded hardware
+
+Technology stack
+----------------
+  - Python 3.11, Ultralytics YOLOv11, PyTorch (training on NVIDIA GPU)
+  - OpenCV, cvzone (visualization), picamera2 (Pi camera)
+  - ONNX / ONNX Runtime (optional Pi deployment)
+  - Hardware: Windows PC (train/evaluate), Raspberry Pi 5 + IMX219-83 stereo cam
+
+Key deliverables
+----------------
+  - models/mars_rock_detector.pt      — production nano weights (~5.5 MB)
+  - models/mars_rock_detector_m.pt    — medium weights (~40 MB, higher accuracy)
+  - Videos/output/*_detected.mp4      — annotated test outputs
+  - scripts/inference_pi.py           — live camera demo on rover hardware
+  - Implementation.txt                — this document (full project knowledge base)
+
+Design decisions (why it was built this way)
+---------------------------------------------
+  - Single class "rock" — simplifies labeling and matches rover use case
+    (see Section 23 for when multi-class rock types would be worth adding)
+  - Curated Videos/eval/ — fair benchmarking (excluded misleading mixed-terrain clips)
+  - 08_pi_closeup_rock_test.mp4 — simulates Pi camera before hardware demo
+  - Appearance filters — reduce false positives on orange sand (Mars terrain)
+  - Two model sizes — trade-off between Pi real-time FPS and detection accuracy
+  - ONNX export path — optional optimization without changing model weights
+
+Demo narrative (5 minutes)
+--------------------------
+  1. Show dataset: data/mars_rocks/ labeled images
+  2. Show training output: runs/detect/ metrics, models/*.pt
+  3. Play Videos/eval/08_pi_closeup_rock_test.mp4 vs output detected version
+  4. Explain compare_models.py results (nano vs medium)
+  5. Live Pi: inference_pi.py with rock held in front of IMX219 camera
+  6. Mention future work: stereo depth, more Pi-domain training images
+
+How to read this document
+-------------------------
+  Sections 1–19  — Concepts, workflows, tuning, deployment (technical depth)
+  Section 20     — Project architecture diagram
+  Section 21     — Every project file: purpose and task (by folder)
+  Section 22     — Master file index summary table (quick lookup)
+  Section 23     — Rock type classification (future feature analysis)
+  Section 25     — Complete ONNX deployment on Pi 5 (step-by-step)
+  Section 26     — Detection dashboard and live display
+  Section 27     — Thermal imaging (analysis for rover project)
+  Section 24     — Change log
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+Goal
+----
+Build a rock detector that:
+  1. Trains on labeled Mars / rock images (class: rock)
+  2. Runs on sample videos with bounding boxes saved to Videos/output/
+  3. Deploys on Raspberry Pi 5 with a live camera — rock in front of lens → box
+
+Main scripts
+------------
+  scripts/train.py              — Train YOLOv11 on data/mars_rocks/
+  scripts/detect_rocks.py       — Video inference (pick video + .pt model)
+  scripts/inference_pi.py       — Live Pi camera inference
+  scripts/PT_to_ONNX.py         — Export .pt → .onnx for Pi optimization
+  scripts/compare_models.py     — Compare nano vs medium on eval videos
+  scripts/evaluate_videos.py    — Eval report on Videos/eval/
+  scripts/build_pi_test_video.py — Build 08_pi_closeup_rock_test.mp4
+  scripts/enrich_rock_dataset.py — Add training data from videos / NASA
+
+Models (models/)
+----------------
+  mars_rock_detector.pt    — YOLO11n (nano), ~5.5 MB, faster on Pi
+  mars_rock_detector_m.pt  — YOLO11m (medium), ~40 MB, more accurate on PC
+
+Evaluation videos (Videos/eval/)
+--------------------------------
+  01_mars_rover_rocks.mp4       — Wide rover field; detections start ~frame 299
+  05_rock_labeled_variety.mp4   — Slideshow of labeled rock scenes (works well)
+  08_pi_closeup_rock_test.mp4   — Pi simulation: 640x480 close-up rocks
+
+Archived (Videos/archive/) — not used for standard eval:
+  02, 03, 06, 07 — mixed terrain, NASA gallery, negative test, synthetic pan
+
+================================================================================
+2. YOLO DETECTION WORKFLOW (END-TO-END)
+================================================================================
+
+Training phase
+--------------
+  1. Dataset in YOLO format: data/mars_rocks/
+       train/images + train/labels  (one .txt per image, normalized boxes)
+       valid/images + valid/labels
+       data.yaml → path, class names, nc: 1, names: {0: rock}
+
+  2. python scripts/train.py --model yolo11n.pt --epochs 100
+     or for medium: --model yolo11m.pt --batch 4 --export mars_rock_detector_m.pt
+
+  3. Best weights → runs/detect/<run_name>/weights/best.pt
+     Copy exported to models/mars_rock_detector*.pt
+
+Offline video inference
+-----------------------
+  1. User selects video + .pt model (detect_rocks.py)
+  2. Each frame → YOLO forward pass → raw bounding boxes + confidence scores
+  3. Optional post-filters (detection_filters.py, rock_appearance.py)
+  4. Draw boxes → save Videos/output/<name>_detected.mp4
+
+Live Pi inference
+-----------------
+  1. IMX219 camera via picamera2 → 640x480 BGR frame
+  2. model.predict(frame, conf=0.35, imgsz=640)
+  3. Filter / draw boxes → display or MJPEG stream
+  4. Command:
+     python scripts/inference_pi.py --model models/mars_rock_detector_m.pt \
+       --conf 0.35 --no-filters
+
+ONNX deployment path (optional)
+-------------------------------
+  1. python scripts/PT_to_ONNX.py --model models/mars_rock_detector_m.pt
+  2. Copy .onnx to Pi
+  3. python scripts/inference_pi.py --model models/mars_rock_detector_m.onnx --stream
+  Full steps: Section 25. Dashboard: Section 26. Thermal: Section 27.
+
+================================================================================
+3. CONFIDENCE SCORES AND THRESHOLDS
+================================================================================
+
+What is confidence?
+-------------------
+  For each predicted box, YOLO outputs a score 0.0–1.0: how sure the model is
+  that the box contains a "rock". Higher = more certain.
+
+  --conf (confidence threshold)
+  Only boxes with score >= conf are kept. Examples in this project:
+    0.50 — default strict; fewer boxes, may miss distant rocks
+    0.40 — balanced for video eval
+    0.35 — recommended for Pi close-up (rock held near camera)
+
+Trade-off
+---------
+  Lower conf → more detections (better recall) but more false positives
+  Higher conf → fewer false positives but more missed rocks (false negatives)
+
+Project-specific note
+---------------------
+  detect_rocks.py default: --conf 0.40
+  inference_pi.py default: --conf 0.35 (close-up rocks)
+
+  Additional filtering in detection_filters.py and rock_appearance.py can
+  remove boxes even when conf is high (e.g. sand patches that look like rocks).
+
+================================================================================
+4. NON-MAXIMUM SUPPRESSION (NMS)
+================================================================================
+
+Problem
+-------
+  YOLO may output many overlapping boxes on the same rock.
+
+NMS solution
+------------
+  After confidence filtering, NMS removes duplicate boxes:
+    - Sort boxes by confidence (highest first)
+    - Keep the best box; suppress others with IoU > iou threshold
+  Default in ultralytics: iou=0.45 (used in our scripts)
+
+IoU (Intersection over Union)
+-----------------------------
+  Measures overlap between two boxes (0 = none, 1 = identical).
+  If two boxes overlap heavily, NMS keeps only the higher-confidence one.
+
+You rarely tune NMS manually; --conf has more visible effect for users.
+
+================================================================================
+5. FALSE POSITIVES AND FALSE NEGATIVES
+================================================================================
+
+False positive (FP)
+-------------------
+  Model draws a box where there is NO rock (e.g. orange sand, shadow, horizon).
+
+  Fixes:
+    - Better labels: do NOT label sand/terrain as rock
+    - Negative training images (empty .txt label files) — terrain only
+    - Raise --conf (e.g. 0.45–0.55)
+    - appearance filters (rock_appearance.py) — texture/color checks
+    - scripts/improve_dataset.py — add negative frames from bad detections
+
+False negative (FN)
+-------------------
+  A visible rock has NO box (missed detection).
+
+  Fixes:
+    - Label more examples of that rock size / distance / lighting
+    - Lower --conf (e.g. 0.30–0.40)
+    - Use --no-filters on Pi for close-up testing
+    - Train on Pi camera images (domain match)
+    - Larger model (yolo11m) or more epochs
+
+Why 01_mars_rover_rocks.mp4 misses the start
+----------------------------------------------
+  Frames 0–298: model outputs zero raw boxes. Opening scene is wide terrain
+  with small/distant rocks — unlike training close-ups. Detections begin ~frame
+  299 when rocks match training appearance better. This is domain gap, not a
+  drawing bug.
+
+Why 05_rock_labeled_variety.mp4 behaves differently
+---------------------------------------------------
+  It is a slideshow of different still images. Box count varies per segment
+  (not "one rock only at the end" — depends which slide is on screen).
+
+================================================================================
+6. EVALUATION METRICS
+================================================================================
+
+During training (Ultralytics prints per epoch)
+----------------------------------------------
+  Precision (P) — Of all predicted rocks, how many were correct?
+  Recall (R)    — Of all real rocks, how many did we find?
+  mAP50         — Mean Average Precision at IoU 0.50 (main single-number metric)
+  mAP50-95      — Stricter average across IoU thresholds
+
+  Higher mAP50 on validation set → generally better model.
+
+Video evaluation (scripts/evaluate_videos.py, compare_models.py)
+----------------------------------------------------------------
+  detection_rate_pct     — % of frames with at least one box
+  avg_confidence         — Mean score of kept boxes
+  rocks_detected         — Total boxes after filters (compare_models.py)
+  Reports: Videos/output/evaluation/
+
+Curated eval set only (Videos/eval/) — avoids misleading mixed-terrain clips.
+
+================================================================================
+7. TRAINING PARAMETERS
+================================================================================
+
+epochs
+------
+  Number of full passes over the training set.
+  Typical: 80–100. Early stopping (patience=25) stops if val mAP stops improving.
+  More epochs help until validation metrics plateau; too many → overfitting.
+
+batch
+-----
+  Images per GPU step. Larger = faster training, more VRAM.
+  yolo11n on RTX 4060: batch 8–16
+  yolo11m on 8 GB GPU: batch 4
+
+imgsz (image size)
+------------------
+  Input resolution (square). Default 640 matches training and Pi camera pipeline.
+  Larger (768) can help tiny distant rocks but slower inference.
+
+learning rate (lr0)
+-------------------
+  Controlled by Ultralytics optimizer (auto). Default ~0.01 with cosine decay.
+  Fine-tuning from existing .pt uses same schedule; rarely changed manually.
+
+Base model
+----------
+  yolo11n.pt — nano, fast, Pi-friendly
+  yolo11m.pt — medium, ~3× params, better accuracy, slower on Pi
+
+Augmentations (in train.py)
+---------------------------
+  hsv_h/s/v — color jitter (important for Mars sand vs gray rocks)
+  degrees, scale, mixup, copy_paste — shape / layout variety
+
+Export flag
+-----------
+  --export mars_rock_detector_m.pt — filename copied to models/ after training
+
+================================================================================
+8. DATASET PREPARATION AND LABELING
+================================================================================
+
+YOLO label format (per image: labels/<stem>.txt)
+------------------------------------------------
+  class_id x_center y_center width height
+  All coordinates normalized 0–1 relative to image size.
+  Single class: 0 = rock
+
+Rules for good labels
+---------------------
+  - One tight box per rock instance
+  - Label ONLY physical rocks; never sand, sky, rover parts, shadows
+  - Include negative images (empty label file) for terrain without rocks
+  - Match deployment domain: add Pi camera photos when possible
+
+Dataset layout
+--------------
+  data/mars_rocks/
+    train/images, train/labels
+    valid/images, valid/labels
+    test/images, test/labels
+    data.yaml
+
+Sources used in project
+-----------------------
+  - Roboflow Mars rock datasets (download_dataset.py + ROBOFLOW_API_KEY)
+  - GitHub Mars-Rock-Detection YOLO dataset (fallback)
+  - enrich_rock_dataset.py — mines frames from eval videos + NASA images
+  - improve_dataset.py — removes loose boxes, adds negative frames
+
+================================================================================
+9. MODEL TUNING AND OPTIMIZATION (PRIORITY ORDER)
+================================================================================
+
+Highest impact
+  1. Annotation quality + domain-matched images (Pi camera frames)
+  2. Balanced dataset (positives + negatives)
+  3. Confidence threshold tuning for your use case
+
+High impact
+  4. More diverse training images (800–1500+)
+  5. yolo11m vs yolo11n (accuracy vs speed)
+  6. enrich_rock_dataset.py / improve_dataset.py
+
+Medium impact
+  7. More epochs (until mAP plateaus)
+  8. imgsz 640 vs 768
+  9. Data augmentation (already enabled in train.py)
+
+Lower impact (inference-only)
+  10. appearance filters — reduce FP, can increase FN
+  11. NMS iou tweak
+
+Pi deployment choice
+--------------------
+  Accuracy priority: mars_rock_detector_m.pt + ONNX (Section 12)
+  Speed priority:    mars_rock_detector.pt (nano)
+
+================================================================================
+10. YOLO11n vs YOLO11m IN THIS PROJECT
+================================================================================
+
+  mars_rock_detector.pt (nano)
+    - ~5.5 MB, fastest on Pi 5
+    - Good for real-time rover camera
+    - May miss small/distant rocks
+
+  mars_rock_detector_m.pt (medium)
+    - ~40 MB, trained with --model yolo11m.pt
+    - Better on Videos/eval/ especially close-up rocks
+    - Slower on Pi; use for accuracy testing or ONNX-optimized inference
+
+Compare:
+  python scripts/compare_models.py --conf 0.40
+
+================================================================================
+11. RASPBERRY PI 5 DEPLOYMENT STEPS
+================================================================================
+
+Hardware
+--------
+  - Raspberry Pi 5
+  - IMX219-83 stereo camera (cam0 = left, cam1 = right)
+  - /boot/firmware/config.txt overlays for imx219 (see inference_pi.py header)
+
+Software on Pi
+--------------
+  1. Clone/copy project (or minimal: scripts + models + detection_filters.py)
+  2. Python venv + pip install -r requirements.txt
+     (PyTorch on Pi is heavy; ONNX path reduces dependency size — Section 12)
+  3. sudo apt install -y python3-picamera2
+
+Copy to Pi
+----------
+  models/mars_rock_detector_m.pt   (or .onnx after export)
+  scripts/inference_pi.py
+  scripts/detection_filters.py
+  scripts/rock_appearance.py
+
+Run live detection
+------------------
+  python scripts/inference_pi.py \
+    --model models/mars_rock_detector_m.pt \
+    --conf 0.35 \
+    --no-filters
+
+  --no-filters  → show all model boxes (best for close-up rock in front of lens)
+  --stream      → MJPEG at http://<pi-ip>:8080
+  Press q to quit local window
+
+Test offline first (on PC)
+--------------------------
+  python scripts/detect_rocks.py \
+    --video Videos/eval/08_pi_closeup_rock_test.mp4 \
+    --model models/mars_rock_detector_m.pt --conf 0.35
+
+  08_pi_closeup_rock_test.mp4 mimics Pi: 640x480, empty then close-up rocks.
+
+If FPS too low on Pi
+--------------------
+  - Use mars_rock_detector.pt (nano)
+  - Export ONNX + onnxruntime (Section 12)
+  - Reduce resolution --width 416 --height 416 (retrain or export matching imgsz)
+
+================================================================================
+12. WHY CONVERT .pt TO .onnx (AND WHEN YOU DON'T NEED TO)
+================================================================================
+
+What is .pt?
+------------
+  PyTorch checkpoint containing full model weights + architecture metadata.
+  Ultralytics loads it with torch and runs inference through the PyTorch runtime.
+
+What is .onnx?
+--------------
+  Open Neural Network Exchange — a portable graph format (model structure +
+  weights) readable by many runtimes without full PyTorch training stack.
+
+Why convert for Raspberry Pi?
+-----------------------------
+  1. SMALLER DEPLOYMENT FOOTPRINT
+     Pi does not need entire PyTorch training ecosystem for inference only.
+     onnxruntime is lighter than torch for deployment.
+
+  2. FASTER INFERENCE (often)
+     ONNX Runtime applies graph optimizations (operator fusion, constant folding).
+     On ARM CPUs, optimized ONNX can beat naive PyTorch inference.
+
+  3. HARDWARE / RUNTIME FLEXIBILITY
+     Same .onnx can target:
+       - onnxruntime (CPU on Pi 5)
+       - TensorRT (NVIDIA, not Pi)
+       - NCNN, OpenVINO, etc. after further conversion
+     Easier to embed in non-Python pipelines if needed.
+
+  4. PRODUCTION STABILITY
+     Frozen graph with fixed input size → predictable memory and latency on robot.
+
+When .pt directly is fine
+-------------------------
+  - Development and debugging on PC (simplest: YOLO('model.pt'))
+  - Pi already has torch installed and FPS is acceptable
+  - You use ultralytics end-to-end (it can load .onnx too)
+
+This project supports BOTH paths:
+  PC / quick test  → .pt via detect_rocks.py, inference_pi.py
+  Pi optimization  → PT_to_ONNX.py → .onnx + onnxruntime
+
+How to export (scripts/PT_to_ONNX.py)
+-------------------------------------
+  python scripts/PT_to_ONNX.py --model models/mars_rock_detector_m.pt
+
+  Key options:
+    --imgsz 640     Must match training and camera pipeline
+    --opset 12      ONNX operator set; 12 is widely supported on ARM
+    simplify=True   Graph cleanup (enabled in script)
+    dynamic=False   Fixed 640x640 input — faster on Pi (default)
+    half=False      FP32 for maximum Pi CPU compatibility
+
+  Output: models/mars_rock_detector_m.onnx (alongside .pt)
+
+Review notes on original script
+-------------------------------
+  Original was correct minimal export:
+    model.export(format="onnx", imgsz=[640,640], opset=12)
+  Improvements added:
+    - CLI --model path, --imgsz, --dynamic flag
+    - simplify=True, half=False documented
+    - __main__ guard, error if file missing
+    - Prints output path and Pi next steps
+
+================================================================================
+13. ONNX INFERENCE WORKFLOW ON PI
+================================================================================
+
+  See Section 25 for the complete step-by-step deployment guide.
+
+  1. On PC: python scripts/PT_to_ONNX.py --model models/mars_rock_detector_m.pt
+  2. Copy models/mars_rock_detector_m.onnx to Pi
+  3. On Pi: pip install onnxruntime opencv-python-headless ultralytics
+  4. Run inference_pi.py (same script as .pt):
+       python scripts/inference_pi.py --model models/mars_rock_detector_m.onnx \
+         --conf 0.35 --no-filters --stream
+  5. Option B — Raw onnxruntime (smallest stack, more code):
+       Pre/post-processing (letterbox, NMS) must match YOLO — prefer inference_pi.py
+       unless you need custom C++ deployment.
+
+  Preprocessing must match training:
+    - BGR image from camera
+    - Resize/letterbox to 640x640
+    - Normalize as YOLO expects (handled by ultralytics)
+
+================================================================================
+14. STEREO CAMERA (IMX219-83) INTEGRATION
+================================================================================
+
+  IMX219-83 is a stereo pair: two IMX219 sensors.
+  On Pi 5:
+    camera_num 0 → left  (CAM/DISP 0)
+    camera_num 1 → right (CAM/DISP 1)
+
+  inference_pi.py uses picamera2:
+    Picamera2(0) or Picamera2(1) — one stream at a time for rock detection
+    Default preview: 640x480 RGB888 → converted to BGR for OpenCV/YOLO
+
+  Boot config (dual camera example):
+    camera_auto_detect=0
+    dtoverlay=imx219,cam0
+    dtoverlay=imx219,cam1
+
+  Depth / 3D from stereo is NOT implemented in this project yet — only
+  monocular detection on one selected camera. Future work: disparity map +
+  distance to rock using both streams.
+
+================================================================================
+15. PERFORMANCE OPTIMIZATION TECHNIQUES
+================================================================================
+
+  Training (PC)
+    - GPU CUDA (RTX 4060): train.py --device 0
+  - Mixed precision (AMP) enabled automatically by Ultralytics on GPU
+
+  Inference (PC)
+    - Lower --conf only after validating FP rate
+    - Batch video processing without --show
+
+  Inference (Pi)
+    - Prefer nano model or ONNX + onnxruntime
+    - Fixed imgsz 640, dynamic=False in ONNX export
+    - --no-filters reduces CPU post-processing
+    - --no-display or --stream only (no local cv2 window)
+    - picamera2 resolution match export size (avoid extra resize)
+
+  Model size ladder
+    yolo11n < yolo11s < yolo11m < yolo11l — speed vs accuracy trade-off
+
+================================================================================
+16. ROCK APPEARANCE FILTERS (PROJECT-SPECIFIC)
+================================================================================
+
+  scripts/rock_appearance.py — color/texture score for rock vs Mars sand
+  scripts/detection_filters.py — box geometry + optional appearance check
+
+  Used in: detect_rocks.py, video_detection.py, inference_pi.py (optional)
+
+  Sand is often uniform orange/red; rocks have more texture, gray tones,
+  edge structure. Filters reduce false positives on terrain videos.
+
+  For Pi close-up (rock fills frame): use --no-filters on inference_pi.py
+  Filters can reject valid close-up detections in edge cases.
+
+================================================================================
+17. PROJECT FOLDER STRUCTURE (SIMPLIFIED)
+================================================================================
+
+  models/           Trained weights (.pt, .onnx)
+  data/mars_rocks/  YOLO dataset
+  Videos/eval/      Official test videos
+  Videos/archive/   Excluded from standard eval
+  Videos/output/    Annotated detection outputs
+  scripts/          All Python tools
+  runs/detect/      Training run logs, weights, plots
+  config/           dataset.yaml reference
+
+================================================================================
+18. COMMON COMMANDS CHEAT SHEET
+================================================================================
+
+  Train nano:
+    python scripts/train.py --model yolo11n.pt --epochs 100 --device 0
+
+  Train medium:
+    python scripts/train.py --model yolo11m.pt --batch 4 --epochs 100 \
+      --name mars_rock_train_m --export mars_rock_detector_m.pt
+
+  Detect on video (interactive):
+    python scripts/detect_rocks.py
+
+  Detect on Pi test clip:
+    python scripts/detect_rocks.py --video Videos/eval/08_pi_closeup_rock_test.mp4 \
+      --model models/mars_rock_detector_m.pt --conf 0.35
+
+  Compare models:
+    python scripts/compare_models.py --conf 0.40
+
+  Export ONNX:
+    python scripts/PT_to_ONNX.py --model models/mars_rock_detector_m.pt
+
+  Pi live:
+    python scripts/inference_pi.py --model models/mars_rock_detector_m.pt \
+      --conf 0.35 --no-filters
+
+  Rebuild Pi eval video:
+    python scripts/build_pi_test_video.py
+
+================================================================================
+17. PROJECT FOLDER STRUCTURE (SIMPLIFIED)
+================================================================================
+
+  models/           Trained weights (.pt, .onnx)
+  data/mars_rocks/  YOLO dataset (419+ train images; not every file listed)
+  Videos/eval/      Official test videos
+  Videos/archive/   Excluded from standard eval
+  Videos/output/    Annotated detection outputs
+  scripts/          All Python tools (see Section 21 for each file)
+  runs/detect/      Training run logs, weights, plots (generated by train.py)
+  config/           dataset.yaml reference
+
+  Full file-by-file reference: Section 21 and Section 22.
+
+================================================================================
+20. PROJECT ARCHITECTURE (DATA FLOW)
+================================================================================
+
+                    ┌─────────────────────────────────────┐
+                    │  DATA ACQUISITION                    │
+                    │  download_dataset.py                 │
+                    │  download_videos.py                    │
+                    │  enrich_rock_dataset.py              │
+                    │  improve_dataset.py                  │
+                    └──────────────┬──────────────────────┘
+                                   ▼
+                    ┌─────────────────────────────────────┐
+                    │  data/mars_rocks/                    │
+                    │  images + YOLO labels + data.yaml    │
+                    └──────────────┬──────────────────────┘
+                                   ▼
+                    ┌─────────────────────────────────────┐
+                    │  TRAINING (PC + GPU)                 │
+                    │  train.py → runs/detect/*/best.pt    │
+                    └──────────────┬──────────────────────┘
+                                   ▼
+                    ┌─────────────────────────────────────┐
+                    │  models/                             │
+                    │  mars_rock_detector.pt  (nano)       │
+                    │  mars_rock_detector_m.pt (medium)    │
+                    └───────┬─────────────────┬─────────────┘
+                            │                 │
+              ┌─────────────▼──────┐   ┌──────▼──────────────┐
+              │  PC VALIDATION      │   │  Pi DEPLOYMENT       │
+              │  detect_rocks.py    │   │  inference_pi.py     │
+              │  evaluate_videos.py │   │  PT_to_ONNX.py       │
+              │  compare_models.py  │   │  deploy_pi.sh        │
+              └─────────────┬──────┘   └──────┬──────────────┘
+                            ▼                 ▼
+                    ┌─────────────────────────────────────┐
+                    │  OUTPUT                              │
+                    │  Videos/output/ annotated videos     │
+                    │  Live camera / MJPEG stream on Pi    │
+                    └─────────────────────────────────────┘
+
+Supporting modules (used by multiple stages):
+  video_detection.py   — frame loop, stats, box drawing
+  detection_filters.py — reject sand-like false positives
+  rock_appearance.py   — color/texture rock vs terrain scoring
+  eval_config.py       — paths to eval videos and model files
+
+================================================================================
+21. FILE-BY-FILE REFERENCE (PURPOSE AND TASK)
+================================================================================
+
+--- ROOT LEVEL ---
+
+Implementation.txt
+  PURPOSE: Living project documentation (this file).
+  TASK: Records architecture, workflows, concepts, and every file's role so
+        the project can be understood without re-reading source code. Used for
+        personal recap and mentor/interviewer presentations.
+
+requirements.txt
+  PURPOSE: Python dependency list for reproducible environment setup.
+  TASK: Lists ultralytics, opencv, torch, roboflow, cvzone, etc. Installed by
+        setup_env.ps1 and on Pi via deploy_pi.sh (subset).
+
+.gitignore
+  PURPOSE: Git exclusion rules.
+  TASK: Ignores .venv/, large .pt files, dataset blobs, Videos/output/, runs/
+        so the repo stays lightweight; models tracked via .gitkeep placeholder.
+
+yolo11m.pt (if present at root)
+  PURPOSE: Pretrained YOLO11 medium backbone downloaded by Ultralytics.
+  TASK: Starting checkpoint for train.py when training medium model. Not the
+        final trained rock detector — see models/mars_rock_detector_m.pt.
+
+yolo26n.pt (if present)
+  PURPOSE: Auto-downloaded helper weights used internally by Ultralytics AMP.
+  TASK: Not used directly by project scripts; safe to delete or gitignore.
+
+
+--- config/ ---
+
+config/dataset.yaml
+  PURPOSE: Reference/template dataset configuration.
+  TASK: Documents expected YOLO layout (path, train/val splits, class rock).
+        Active training uses data/mars_rocks/data.yaml with absolute paths.
+
+
+--- models/ ---
+
+models/.gitkeep
+  PURPOSE: Placeholder so the models/ folder exists in git.
+  TASK: Allows committing folder structure; actual .pt files are gitignored.
+
+models/mars_rock_detector.pt
+  PURPOSE: Final exported YOLO11n (nano) rock detector weights.
+  TASK: Primary model for fast inference and Pi deployment when FPS matters.
+        Produced by train.py copying runs/detect/*/weights/best.pt.
+
+models/mars_rock_detector_m.pt
+  PURPOSE: Final exported YOLO11m (medium) rock detector weights.
+  TASK: Higher-accuracy model for PC evaluation and Pi when accuracy > speed.
+        Trained with train.py --model yolo11m.pt --export mars_rock_detector_m.pt.
+
+models/mars_rock_detector_m.onnx (after export)
+  PURPOSE: ONNX graph export of medium model for optimized Pi inference.
+  TASK: Created by PT_to_ONNX.py; runnable with onnxruntime or YOLO(onnx).
+
+
+--- data/ (selected files — dataset images not listed individually) ---
+
+data/mars_rocks/
+  PURPOSE: Main YOLO training dataset directory.
+  TASK: Contains train/valid/test splits with images/ and labels/ per split,
+        plus data.yaml. All training reads from here.
+
+data/mars_rocks/data.yaml
+  PURPOSE: Ultralytics dataset manifest.
+  TASK: Declares path, splits, nc: 1, names: rock. Required by train.py.
+
+data/dataset_improvement_report.json
+  PURPOSE: Log from improve_dataset.py run.
+  TASK: Records how many loose labels were removed and negative frames added.
+
+data/rock_enrichment_report.json
+  PURPOSE: Log from enrich_rock_dataset.py run.
+  TASK: Records video mining and NASA image additions to training set.
+
+data/video_staging/
+  PURPOSE: Staging folder for raw NASA images before dataset merge.
+  TASK: Temporary storage during download/enrichment pipelines.
+
+data/generalized_staging/, data/github_staging/, data/raw/
+  PURPOSE: Intermediate download locations for dataset scripts.
+  TASK: Hold Roboflow/GitHub/NASA assets during download_dataset.py and
+        expand_generalized_dataset.py processing.
+
+
+--- runs/detect/ (generated, not hand-authored) ---
+
+runs/detect/mars_rock_train/
+runs/detect/mars_rock_train_m/ or mars_rock_shape_color/
+  PURPOSE: Ultralytics training run directories.
+  TASK: Store weights/best.pt, training curves, confusion matrix, args.yaml,
+        batch preview images. Created automatically by train.py / enrich retrain.
+
+
+--- Videos/ ---
+
+Videos/eval/manifest.json
+  PURPOSE: Documents official evaluation video set.
+  TASK: Lists 01, 05, 08 with descriptions for presenters and eval scripts.
+
+Videos/eval/01_mars_rover_rocks.mp4
+  PURPOSE: Rover rock-field reference video (challenging wide shots).
+  TASK: Eval clip; detections start ~frame 299 due to domain gap at opening.
+
+Videos/eval/05_rock_labeled_variety.mp4
+  PURPOSE: Slideshow of clearly labeled rock training scenes.
+  TASK: Primary validation video where model performs best.
+
+Videos/eval/08_pi_closeup_rock_test.mp4
+  PURPOSE: Synthetic Pi-camera test pattern at 640x480.
+  TASK: Built by build_pi_test_video.py; empty terrain → close-up rocks → empty.
+        Best offline test before live Pi demo.
+
+Videos/archive/manifest.json
+  PURPOSE: Documents excluded videos and reasons.
+  TASK: Explains why 02, 03, 06, 07 are not in standard eval.
+
+Videos/archive/*.mp4 (02, 03, 06, 07)
+  PURPOSE: Non-standard benchmark clips kept for reference.
+  TASK: Terrain slideshow, NASA gallery, negative precision test, synthetic pan.
+        Not used in evaluate_videos.py or compare_models.py by default.
+
+Videos/samples/README.txt
+  PURPOSE: Pointer after video reorganization.
+  TASK: Explains samples moved to eval/ and archive/.
+
+Videos/samples/manifest.json
+  PURPOSE: Legacy manifest from original download_videos.py layout.
+  TASK: Historical reference; active eval uses Videos/eval/manifest.json.
+
+Videos/output/*_detected.mp4
+  PURPOSE: Annotated inference results from detect_rocks.py.
+  TASK: Visual proof of detection; used in demos and qualitative review.
+
+Videos/output/batch_detection_report.json
+  PURPOSE: JSON stats from batch video runs (legacy batch script).
+  TASK: Per-video frame/box counts when batch detection was run.
+
+Videos/output/evaluation/
+  PURPOSE: Structured evaluation outputs.
+  TASK: Holds evaluation_report.json, model_comparison.json, per-model subfolders
+        (yolo-nano/, yolo-m/), and miss_frames/ for failed detection frames.
+
+
+--- scripts/ (every script explained) ---
+
+scripts/train.py
+  PURPOSE: Train YOLOv11 rock detector on data/mars_rocks/.
+  TASK: Loads yolo11n.pt or yolo11m.pt, runs Ultralytics training with color
+        augmentations, exports best weights to models/. Core training entry point.
+
+scripts/download_dataset.py
+  PURPOSE: Download and merge labeled Mars rock datasets.
+  TASK: Fetches Roboflow/GitHub/NASA data, normalizes labels to class "rock",
+        writes data/mars_rocks/ and data.yaml. First-time dataset setup.
+
+scripts/download_videos.py
+  PURPOSE: Download/build sample test videos into Videos/ (legacy layout).
+  TASK: Creates slideshow MP4s from dataset images and external sources.
+        Supplemented by setup_eval_videos.py for eval/archive organization.
+
+scripts/enrich_rock_dataset.py
+  PURPOSE: Expand training data with color/shape diversity.
+  TASK: Mines frames from eval videos, fetches NASA rock images, auto-labels
+        with appearance heuristics, optionally retrains model.
+
+scripts/improve_dataset.py
+  PURPOSE: Clean bad labels and add negative (empty) training frames.
+  TASK: Removes oversized mislabeled boxes; adds terrain frames with empty .txt
+        labels to reduce false positives; optional fine-tune.
+
+scripts/expand_generalized_dataset.py
+  PURPOSE: Add hard-negative Mars/desert images with empty labels.
+  TASK: Fetches NASA/desert images, adds as negative training samples, optional
+        retrain for better generalization on varied terrain.
+
+scripts/detect_rocks.py
+  PURPOSE: Main user-facing video inference tool.
+  TASK: File-picker or CLI: select video + .pt model → run detection with
+        filters → save Videos/output/<name>_detected.mp4. Primary demo script.
+
+scripts/inference_pi.py
+  PURPOSE: Live rock detection on Raspberry Pi 5 + IMX219 camera.
+  TASK: picamera2 capture loop, YOLO predict, draw boxes, local display or
+        MJPEG HTTP stream. Target deployment script for rover hardware.
+
+scripts/PT_to_ONNX.py
+  PURPOSE: Export trained .pt weights to .onnx for Pi optimization.
+  TASK: Runs model.export(format='onnx') with imgsz=640, opset=12, simplify.
+        Enables lighter onnxruntime deployment on ARM.
+
+scripts/compare_models.py
+  PURPOSE: Side-by-side nano vs medium model comparison.
+  TASK: Runs both models on all Videos/eval/ clips, saves outputs and
+        model_comparison.json with detection counts.
+
+scripts/evaluate_videos.py
+  PURPOSE: Generate evaluation report on curated eval set.
+  TASK: Per-video detection rate, confidence stats, miss frame snapshots,
+        writes evaluation_report.json.
+
+scripts/build_pi_test_video.py
+  PURPOSE: Create 08_pi_closeup_rock_test.mp4.
+  TASK: Assembles 640x480 video from labeled training images + negative frames
+        to simulate Pi close-up rock presentation.
+
+scripts/setup_eval_videos.py
+  PURPOSE: Organize videos into Videos/eval/ and Videos/archive/.
+  TASK: Moves MP4s from legacy locations into curated folders; one-time setup.
+
+scripts/eval_config.py
+  PURPOSE: Shared constants for evaluation scripts.
+  TASK: Defines EVAL_DIR, EVAL_VIDEO_NAMES, MODEL_NANO, MODEL_MEDIUM paths;
+        used by compare_models.py and evaluate_videos.py.
+
+scripts/video_detection.py
+  PURPOSE: Shared video processing library.
+  TASK: DetectionStats dataclass, collect_video_paths(), process_video() loop
+        with cvzone box drawing and filter integration.
+
+scripts/detection_filters.py
+  PURPOSE: Geometric and optional appearance filtering of detections.
+  TASK: is_likely_rock_box() rejects oversized boxes, sand-like regions, and
+        low appearance scores before drawing.
+
+scripts/rock_appearance.py
+  PURPOSE: Color/texture analysis for rock vs Mars sand.
+  TASK: appearance_score(), find_rock_boxes_by_appearance(), YOLO label helpers
+        for dataset mining. Distinguishes gray textured rocks from orange sand.
+
+scripts/setup_env.ps1
+  PURPOSE: Windows development environment bootstrap.
+  TASK: Creates .venv, installs requirements.txt on training PC.
+
+scripts/install_cuda_torch.ps1
+  PURPOSE: Install GPU-enabled PyTorch on Windows.
+  TASK: pip install torch with CUDA 12.4 wheel for faster training.
+
+scripts/run_evaluation.ps1
+  PURPOSE: One-click evaluation wrapper (Windows).
+  TASK: Activates venv and runs evaluate_videos.py.
+
+scripts/deploy_pi.sh
+  PURPOSE: Raspberry Pi setup automation.
+  TASK: Installs picamera2, creates venv, installs ultralytics/opencv on Pi,
+        prints inference_pi.py usage for stream and local preview.
+
+
+================================================================================
+22. MASTER FILE INDEX SUMMARY (QUICK LOOKUP)
+================================================================================
+
+Use this table to recap the entire project at a glance.
+
+CATEGORY          | FILE / FOLDER                    | FUNCTION
+------------------|----------------------------------|----------------------------------
+Documentation     | Implementation.txt               | Full project knowledge base
+Config            | requirements.txt                 | Python dependencies
+Config            | config/dataset.yaml              | Dataset layout reference
+Config            | .gitignore                       | Git exclusions
+Models            | models/mars_rock_detector.pt     | Nano detector (Pi/fast)
+Models            | models/mars_rock_detector_m.pt   | Medium detector (accurate)
+Models            | models/*.onnx                    | ONNX export for Pi (optional)
+Dataset           | data/mars_rocks/                 | YOLO train/val/test images+labels
+Dataset           | data/mars_rocks/data.yaml        | Training data manifest
+Dataset reports   | data/*_report.json               | Dataset improvement logs
+Train             | scripts/train.py                 | Train YOLOv11 → models/
+Data prep         | scripts/download_dataset.py      | Download labeled Mars data
+Data prep         | scripts/download_videos.py       | Build sample videos
+Data prep         | scripts/enrich_rock_dataset.py   | Add diverse training samples
+Data prep         | scripts/improve_dataset.py       | Clean labels + negatives
+Data prep         | scripts/expand_generalized_dataset.py | Hard-negative expansion
+Video inference   | scripts/detect_rocks.py          | Main video detection UI
+Pi inference      | scripts/inference_pi.py          | Live IMX219 camera detection
+Pi export         | scripts/PT_to_ONNX.py            | .pt → .onnx conversion
+Evaluation        | scripts/evaluate_videos.py         | Metrics on eval videos
+Evaluation        | scripts/compare_models.py          | Nano vs medium comparison
+Evaluation        | scripts/eval_config.py             | Shared eval paths
+Evaluation        | scripts/setup_eval_videos.py       | Organize eval vs archive
+Pi test asset     | scripts/build_pi_test_video.py   | Build 08_pi_closeup clip
+Shared logic      | scripts/video_detection.py       | Video loop + stats
+Shared logic      | scripts/detection_filters.py     | False-positive filtering
+Shared logic      | scripts/rock_appearance.py         | Color/shape rock scoring
+Windows setup     | scripts/setup_env.ps1            | Create PC venv
+Windows setup     | scripts/install_cuda_torch.ps1   | GPU PyTorch install
+Windows helper    | scripts/run_evaluation.ps1       | Run evaluate_videos.py
+Pi setup          | scripts/deploy_pi.sh             | Pi apt + venv + camera check
+Eval input        | Videos/eval/*.mp4                | Official test videos (3)
+Archive input     | Videos/archive/*.mp4             | Non-standard clips (4)
+Eval output       | Videos/output/*_detected.mp4     | Annotated results
+Eval output       | Videos/output/evaluation/        | Reports + model comparisons
+Training output   | runs/detect/*/                     | Weights, plots, metrics
+Pretrained        | yolo11m.pt (root)                | Ultralytics base checkpoint
+
+WHY THE PROJECT HAS THIS STRUCTURE
+----------------------------------
+  - scripts/ split by pipeline stage (data → train → eval → deploy) so each
+    script has one clear job and can be demo'd or tested independently.
+  - models/ holds only final exported weights for inference (not every epoch).
+  - Videos/eval/ vs archive/ separates fair benchmarks from misleading clips.
+  - Shared modules (video_detection, filters, appearance) avoid duplicating
+    detection logic across PC and Pi scripts.
+  - Implementation.txt captures decisions so the project is presentable without
+    walking through 20+ source files.
+
+COMPLETE WORKFLOW RECAP (ONE PAGE)
+----------------------------------
+  1. setup_env.ps1 + download_dataset.py        → get data
+  2. improve_dataset.py / enrich_rock_dataset.py → improve labels (optional)
+  3. train.py                                   → models/*.pt
+  4. build_pi_test_video.py                     → 08 eval clip
+  5. detect_rocks.py / compare_models.py        → validate on PC
+  6. PT_to_ONNX.py (optional)                   → .onnx for Pi
+  7. deploy_pi.sh + inference_pi.py on Pi 5     → live rock detection
+
+================================================================================
+23. ROCK TYPE CLASSIFICATION (BASALT, SANDSTONE, ETC.)
+================================================================================
+
+Current project scope (what you have now)
+-----------------------------------------
+  The system detects one class only: "rock" (class id 0).
+  Bounding-box labels show:  rock 0.72  (class name + confidence score)
+  It does NOT identify geologic type (Basalt, Sandstone, Conglomerate, etc.).
+
+Recommendation for THIS stage
+-----------------------------
+  **Do NOT add rock-type labels yet.** Stay with single-class "rock" detection.
+
+  Reasons:
+    1. Your primary goal is rover navigation — knowing "there is a rock here"
+       is enough to avoid obstacles or flag interesting targets. Type is secondary.
+    2. You are still improving basic detection (missed rocks, false positives on
+       sand, Pi camera domain gap). Adding classes multiplies labeling effort and
+       confusion before the detector is reliable.
+    3. Geologic classification from RGB camera alone is hard even for geologists;
+       requires more data, closer views, and often multispectral or contact science.
+    4. Pi 5 real-time inference is already constrained; a larger multi-class
+       model or a second classification stage adds latency and deployment risk.
+    5. Mars rover science teams often separate "find rock" (vision) from "identify
+       composition" (spectrometer / arm tools) — your pipeline matches that pattern.
+
+  When presenting to mentors: emphasize reliable rock *detection* and Pi deployment
+  first; mention rock-type ID as a documented Phase 2 extension (below).
+
+When rock-type classification WOULD be useful
+---------------------------------------------
+  - Science-focused rover: prioritize samples by rock type (e.g. sedimentary vs
+    igneous) for return or detailed study.
+  - Geology field training tool: teach students to recognize common rock types in
+    Mars-analog environments.
+  - Sorting / inventory: count how many basalt vs sandstone clasts in a scene.
+  - Mission planning: "map sandstone outcrops" vs "map loose basalt cobbles."
+
+  It is NOT critical for: obstacle avoidance, simple "rock present / absent,"
+  or proving the YOLO + Pi pipeline works end-to-end.
+
+How it would be implemented (two main approaches)
+-------------------------------------------------
+
+  APPROACH A — Multi-class object detection (single YOLO model)
+  -------------------------------------------------------------
+  Replace one class with multiple classes in data.yaml, e.g.:
+    names: {0: basalt, 1: sandstone, 2: conglomerate, 3: breccia, ...}
+
+  Training:
+    - Every bounding box labeled with rock TYPE, not generic "rock"
+    - python scripts/train.py --data data/mars_rocks_multiclass/data.yaml
+
+  Inference:
+    - Same detect_rocks.py / inference_pi.py flow
+    - Label becomes:  basalt 0.81  instead of  rock 0.81
+    - Update CLASS_NAMES in video_detection.py from model.names
+
+  Pros: One model, one forward pass, boxes show type directly.
+  Cons: Needs many labeled examples PER type; confused types if visually similar
+        (weathered basalt vs dark sandstone); harder to collect Mars labels.
+
+  APPROACH B — Two-stage pipeline (detect then classify)  [often better]
+  --------------------------------------------------------------------
+  Stage 1: Keep current mars_rock_detector*.pt — finds "rock" (any type).
+  Stage 2: Crop each box → second model classifies rock type.
+
+  Stage 2 options:
+    - Small CNN classifier (ResNet/EfficientNet) on rock crops
+    - Separate YOLO classification model (image-level, not detection)
+    - Geology-specific model if fine-tuned on Earth analog + Mars images
+
+  Inference flow:
+    frame → YOLO detect rocks → for each crop: classifier → label "Basalt 0.78"
+
+  Pros: Reuse current detector; add types without retraining detection from scratch;
+        can update classifier independently; detection stays stable.
+  Cons: Two models on Pi = slower; crop quality affects classification; need crop
+        dataset with type labels.
+
+  Recommended path if you add this later: **Approach B (two-stage)** so Phase 1
+  detection investment is preserved.
+
+Additional data and training requirements
+-----------------------------------------
+
+  Multi-class detection (Approach A):
+    - Minimum ~200–500 labeled instances PER class (more for rare types)
+    - Expert or curated labels (Roboflow taxonomy); inconsistent labels hurt badly
+    - Balanced classes or weighted loss — avoid 90% basalt / 10% others
+    - Valid/test splits stratified by class
+    - New data.yaml with nc: N and full names list
+    - Retrain from yolo11n.pt or fine-tune from current weights (transfer may help
+      localization but not type if labels were all class 0)
+
+  Two-stage classifier (Approach B):
+    - Stage 1: existing dataset (unchanged)
+    - Stage 2: crop dataset — each detection crop saved with type label
+        data/rock_types/
+          train/basalt/, train/sandstone/, ...
+          or CSV: crop_path, label
+    - Train classifier: 50–200 images per type minimum for prototype; 500+ for robust
+    - Earth analog photos (desert/volcanic field) + Mars rover images if available
+    - Augmentations: rotation, color jitter (already used in train.py)
+
+  Labeling sources (if pursued):
+    - Roboflow Universe geology datasets
+    - NASA Mars rover images with science team annotations (limited public sets)
+    - Your own Pi camera photos of known rock samples in lab/field
+
+  New scripts that would be added (not implemented yet):
+    scripts/crop_detections.py     — build classifier dataset from videos
+    scripts/train_rock_classifier.py — train Stage 2 model
+    scripts/inference_pi.py         — optional --classifier flag for two-stage labels
+
+Expected benefits
+-----------------
+  + Richer science output for mentors / geology angle
+  + Can filter detections ("only show sandstone")
+  + Demonstrates ML pipeline maturity (detection + classification)
+  + Interview talking point: modular two-stage design
+
+Limitations and risks
+---------------------
+  - RGB appearance alone cannot reliably distinguish all rock types (weathering,
+    lighting, dust cover mimic different types).
+  - Mars images: ground truth type often unknown without in-situ instruments.
+  - More classes → more false type labels → user may trust wrong science output.
+  - Pi latency: medium detector + classifier may drop below usable FPS.
+  - Labeling time dominates project effort; detracts from detection quality work.
+  - Generic "rock" may be wrong type but right for navigation; typed wrong label
+    is worse for science credibility than untyped "rock."
+
+Decision recorded for this project
+----------------------------------
+  **Phase 1 (current):** Single class "rock" — correct scope.
+  **Phase 2 (optional future):** Two-stage detection + classification after:
+    (a) reliable detection on Pi with real rocks in front of camera,
+    (b) stable eval on Videos/eval/08_pi_closeup_rock_test.mp4,
+    (c) dedicated labeled crop dataset with geologic types.
+
+  Display format today (keep as-is):
+    rock 0.65
+  Display format if Phase 2 added:
+    basalt 0.65   or   sandstone 0.52
+
+================================================================================
+25. COMPLETE ONNX DEPLOYMENT ON RASPBERRY PI 5 (STEP-BY-STEP)
+================================================================================
+
+Which Python file to run?
+-------------------------
+  ON YOUR PC (one time, before Pi deploy):
+    scripts/PT_to_ONNX.py     → creates the .onnx file
+
+  ON THE RASPBERRY PI 5 (live inference):
+    scripts/inference_pi.py   → camera + detection + display/stream
+
+  inference_pi.py accepts BOTH .pt and .onnx — pass the path with --model:
+    --model models/mars_rock_detector_m.onnx
+
+  You do NOT need a separate ONNX-only script. Ultralytics YOLO() loads .onnx
+  the same way as .pt when you pass the file path.
+
+PHASE A — Export ONNX on your Windows PC
+----------------------------------------
+  1. Open terminal in project folder, activate venv:
+       .\.venv\Scripts\Activate.ps1
+
+  2. Export medium model (recommended for accuracy):
+       python scripts/PT_to_ONNX.py --model models/mars_rock_detector_m.pt
+
+     Or export nano (faster on Pi):
+       python scripts/PT_to_ONNX.py --model models/mars_rock_detector.pt
+
+  3. Confirm output exists:
+       models/mars_rock_detector_m.onnx   (~40 MB class model, exact size varies)
+
+  4. Optional — test ONNX on PC before copying to Pi:
+       python scripts/detect_rocks.py ^
+         --video Videos/eval/08_pi_closeup_rock_test.mp4 ^
+         --model models/mars_rock_detector_m.onnx --conf 0.35
+
+PHASE B — Copy files to Raspberry Pi 5
+--------------------------------------
+  Minimum copy set (SCP, USB drive, or git without large files):
+
+    models/mars_rock_detector_m.onnx    ← ONNX model (or .pt if not using ONNX)
+    scripts/inference_pi.py             ← main Pi inference script
+    scripts/detection_filters.py        ← only if NOT using --no-filters
+    scripts/rock_appearance.py          ← required by detection_filters.py
+
+  Optional: full project clone + copy model file separately (models/ is gitignored).
+
+  Example SCP from PC (replace PI_IP and user):
+    scp models/mars_rock_detector_m.onnx pi@PI_IP:~/YOLO_Object_Detection_Cursor/models/
+    scp scripts/inference_pi.py scripts/detection_filters.py scripts/rock_appearance.py \
+        pi@PI_IP:~/YOLO_Object_Detection_Cursor/scripts/
+
+PHASE C — Pi software setup (first time only)
+---------------------------------------------
+  On the Pi:
+
+    cd ~/YOLO_Object_Detection_Cursor
+    bash scripts/deploy_pi.sh
+
+  Or manually:
+
+    sudo apt update
+    sudo apt install -y python3-pip python3-venv python3-picamera2 libcamera-apps
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install --upgrade pip
+    pip install ultralytics opencv-python-headless onnxruntime
+
+  Camera boot config (/boot/firmware/config.txt) for IMX219 stereo:
+    camera_auto_detect=0
+    dtoverlay=imx219,cam0
+    dtoverlay=imx219,cam1
+  Then: sudo reboot
+
+PHASE D — Run inference on Pi (THE SCRIPT YOU RUN NOW)
+------------------------------------------------------
+  1. SSH into Pi or open terminal on Pi desktop.
+
+  2. Activate venv:
+       cd ~/YOLO_Object_Detection_Cursor
+       source .venv/bin/activate
+
+  3. Local HDMI monitor (camera preview window on Pi):
+       python scripts/inference_pi.py \
+         --model models/mars_rock_detector_m.onnx \
+         --conf 0.35 --no-filters
+
+  4. Headless + browser dashboard on your PC (recommended for rover desk monitoring):
+       python scripts/inference_pi.py \
+         --model models/mars_rock_detector_m.onnx \
+         --conf 0.35 --no-filters \
+         --stream --no-display --port 8080
+
+     On your PC browser: http://<PI_IP_ADDRESS>:8080/
+
+  5. Hold a rock in front of the IMX219 camera (30–60 cm, fill much of frame).
+     Press q to quit (local display only). Ctrl+C to stop stream mode.
+
+PHASE E — Verify deployment
+---------------------------
+  [ ] Camera opens without error (picamera2)
+  [ ] Boxes appear when rock is in front of lens
+  [ ] http://<pi-ip>:8080/ shows annotated stream (if --stream)
+  [ ] http://<pi-ip>:8080/health returns "ok"
+  [ ] FPS acceptable (if slow: use mars_rock_detector.onnx nano export)
+
+.pt vs .onnx on Pi — quick decision
+-----------------------------------
+  Use .onnx when:
+    - You want smaller install (onnxruntime vs full torch)
+    - You need better CPU inference speed on Pi 5
+    - You are deploying for production / long rover runs
+
+  Use .pt when:
+    - Quick test and torch already installed
+    - Debugging training issues on Pi
+    - ONNX export fails or behaves differently (rare; compare with detect_rocks.py)
+
+Complete workflow diagram (deployment → inference)
+--------------------------------------------------
+
+  [PC] train.py → models/mars_rock_detector_m.pt
+         │
+         ▼
+  [PC] PT_to_ONNX.py → models/mars_rock_detector_m.onnx
+         │
+         ▼
+  [Copy] model + inference_pi.py + filters → Raspberry Pi 5
+         │
+         ▼
+  [Pi] deploy_pi.sh (once) → venv + picamera2 + onnxruntime
+         │
+         ▼
+  [Pi] inference_pi.py --model models/....onnx --stream
+         │
+         ▼
+  [Browser] http://pi-ip:8080/  ← live annotated dashboard (MJPEG)
+
+================================================================================
+26. DETECTION DASHBOARD AND LIVE DISPLAY
+================================================================================
+
+What "dashboard" means in this project
+--------------------------------------
+  A dashboard is any UI that shows live detection results (video + boxes + stats)
+  without reading terminal logs. This project includes a built-in lightweight
+  dashboard; a full web app with charts is optional future work.
+
+Option 1 — Browser MJPEG dashboard (BUILT-IN, use this now)
+-----------------------------------------------------------
+  SCRIPT: scripts/inference_pi.py
+  FLAG:   --stream --no-display --port 8080
+
+  Command on Pi:
+    python scripts/inference_pi.py \
+      --model models/mars_rock_detector_m.onnx \
+      --conf 0.35 --no-filters \
+      --stream --no-display --host 0.0.0.0 --port 8080
+
+  Open on any device on the same network:
+    http://<PI_IP>:8080/          ← live annotated video (MJPEG)
+    http://<PI_IP>:8080/health    ← health check (returns "ok")
+
+  How it works:
+    - inference_pi.py runs YOLO on each camera frame
+    - Draws green boxes and "rock 0.xx" labels
+    - Encodes frame as JPEG and serves multipart MJPEG over HTTP
+    - Your browser displays it like a simple video dashboard
+
+  Best for: mentor demos, desk monitoring while rover moves, no extra software.
+
+Option 2 — Local Pi HDMI display (BUILT-IN)
+------------------------------------------
+  SCRIPT: scripts/inference_pi.py  (no --stream flag)
+
+  Command:
+    python scripts/inference_pi.py --model models/mars_rock_detector_m.onnx \
+      --conf 0.35 --no-filters
+
+  Opens OpenCV window "Mars Rock Detection" on monitor attached to Pi.
+  Press q to quit.
+
+  Best for: bench testing with monitor plugged directly into Pi.
+
+Option 3 — Offline video review dashboard (PC)
+----------------------------------------------
+  SCRIPT: scripts/detect_rocks.py
+
+  Produces saved video:
+    Videos/output/<name>_detected.mp4
+
+  Play in any video player — acts as recorded dashboard for reports and mentors.
+
+  Evaluation reports (numeric dashboard):
+    Videos/output/evaluation/evaluation_report.json
+    Videos/output/evaluation/model_comparison.json
+
+Option 4 — Rich web dashboard (NOT implemented — future Phase 2)
+----------------------------------------------------------------
+  If you need FPS graphs, detection count, multiple camera tiles, or thermal
+  overlay, consider adding later:
+
+    Flask/FastAPI + HTML — custom rover control panel
+    Streamlit — rapid Python dashboard prototype
+    Grafana + MQTT — fleet monitoring (advanced)
+
+  Would require new script (e.g. scripts/dashboard_server.py) publishing:
+    - JPEG/MJPEG stream (reuse inference_pi logic)
+    - WebSocket JSON: {fps, rock_count, last_conf, timestamp}
+    - Optional REST: GET /api/status
+
+  For current project milestone: Option 1 (--stream) is sufficient.
+
+Dashboard checklist for demos
+-----------------------------
+  1. Test offline: detect_rocks.py on 08_pi_closeup_rock_test.mp4
+  2. Start Pi stream: inference_pi.py --stream --no-filters
+  3. Open browser dashboard at http://pi-ip:8080/
+  4. Place rock in front of camera — boxes should appear on dashboard
+  5. Show evaluation JSON on PC for quantitative backup
+
+================================================================================
+27. THERMAL IMAGING FOR ROVER PROJECTS (ANALYSIS)
+================================================================================
+
+Current project hardware
+------------------------
+  IMX219-83 stereo camera = visible RGB only (no thermal sensor).
+  YOLO rock detector = trained on RGB Mars/rock images.
+  Thermal imaging is NOT part of the current system.
+
+Recommendation for THIS stage
+-----------------------------
+  **Do NOT add thermal imaging to the current project phase.**
+
+  Focus on reliable RGB rock detection + Pi ONNX deployment + dashboard stream.
+  Thermal adds hardware cost, fusion complexity, and a separate ML pipeline.
+
+When thermal imaging IS useful (conceptual / future missions)
+-------------------------------------------------------------
+
+Why it is useful
+  - Sees heat instead of visible light — works in darkness without illumination
+  - Highlights warm objects (motors, electronics, animals, sun-warmed rocks)
+  - Can reveal temperature differences invisible to RGB (rock vs cold sand at night)
+  - Low-visibility: dust, glare, shadow — thermal can still show contrast if
+    objects have different temperature than background
+
+Problems it can solve
+  - Night or cave traversal when RGB camera is dark or noisy
+  - Overheating detection (motor/driver/stuck wheel)
+  - Finding warm targets (not the same as "rock type" from geology)
+  - Survivor/search-rescue analog rovers (heat signatures)
+  - Detecting sun-heated rocks vs cold shadows (navigation cue, not geology)
+
+Rover applications that benefit
+  - Autonomous night driving (military, polar, lunar night analogs)
+  - Equipment health monitoring (thermal hotspot on PCB or motor)
+  - Science: thermal inertia of rocks (advanced — needs calibrated sensor)
+  - NOT a drop-in replacement for RGB rock detection for your YOLO model
+
+Why it does NOT replace your current RGB rock detector
+  - Your YOLO model was NOT trained on thermal images — thermal frame fed to
+    mars_rock_detector.onnx will not produce meaningful "rock" boxes
+  - Rock vs sand in thermal is ambiguous (sun heating makes everything warm)
+  - Geologic rock identification still needs visible texture/color or spectrometry
+  - Extra sensor weight, power, sync, and calibration on a student rover
+
+Worth adding to OUR project now?
+--------------------------------
+  **No** — unless your mentor explicitly requires multi-sensor fusion as a
+  separate research track. RGB + IMX219 + YOLO is already a complete pipeline.
+
+  Revisit thermal in Phase 3 if:
+    - You add a thermal module (see hardware below)
+    - You have night-driving requirements
+    - You want a dual-panel dashboard (RGB + thermal side by side)
+
+How thermal WOULD be integrated (future reference)
+--------------------------------------------------
+
+Hardware options for Pi 5
+  - MLX90640 / MLX90641 — 32x24 IR array (low resolution "heatmap")
+  - FLIR Lepton — 80x60 or higher (more expensive, better quality)
+  - Hikmicro / USB thermal cameras — plug-and-play but heavy for small rover
+
+Pi 5 integration steps (high level)
+  1. Connect via I2C (MLX90640) or USB/CSI adapter (Lepton)
+  2. Python library: adafruit_mlx90640, or vendor SDK for Lepton
+  3. Read frame → numpy 2D temperature array
+  4. Normalize to 8-bit grayscale or false-color (OpenCV applyColorMap)
+  5. Display on dashboard OR fuse with RGB (side-by-side or overlay)
+
+Processing thermal data
+  - Raw: temperature per pixel (°C)
+  - Visualize: inferno/jet colormap for human dashboard
+  - Detection options:
+      A) Classical: threshold hot blobs (not "rock" specific)
+      B) Train separate YOLO on thermal-labeled dataset (large effort)
+      C) Sensor fusion: only run RGB YOLO by day; thermal for obstacle/hotspot at night
+
+Display on dashboard (if added later)
+  - Extend inference_pi.py or new scripts/thermal_stream.py
+  - Dual MJPEG: /stream/rgb and /stream/thermal
+  - Or composite image: RGB | thermal | RGB+detections in one frame
+  - Web page with two <img> tags or canvas layout
+
+Performance considerations
+  - MLX90640: low FPS (~4–10 Hz), low resolution — fine for slow rover, not detail
+  - USB thermal cameras: bandwidth and power draw on Pi
+  - Running RGB YOLO + thermal processing + dual stream may exceed Pi 5 budget
+  - Thermal + stereo RGB + medium YOLO together → likely need nano ONNX or offload
+
+Limitations
+  - Cannot classify rock geology from thermal alone
+  - Sun-warmed rocks and warm soil look similar
+  - Thermal sensor adds cost ($50–$300+ depending on module)
+  - Requires recalibration (emissivity) for accurate temperature
+  - Your trained ONNX model does not apply to thermal images without retraining
+
+Decision recorded
+-----------------
+  Phase 1 (current): RGB IMX219 + YOLO ONNX + inference_pi.py MJPEG dashboard
+  Phase 2 (optional): Rich web dashboard with FPS/stats
+  Phase 3 (optional): Thermal sensor + separate visualization/fusion pipeline
+
+================================================================================
+24. CHANGE LOG (DOCUMENT UPDATES)
+================================================================================
+
+  2026-06-23  Initial Implementation.txt
+                - Project overview, workflow, metrics, Pi deployment
+                - ONNX rationale and PT_to_ONNX.py review
+                - Eval video curation (eval vs archive)
+                - 08_pi_closeup_rock_test.mp4 for Pi simulation
+                - False pos/neg, conf thresholds, NMS, training params
+                - Stereo IMX219 notes, performance tips
+
+  2026-06-23  File encyclopedia + presenter guide
+                - Section 0: Executive summary for mentors/interviewers
+                - Section 20: Architecture data-flow diagram
+                - Section 21: File-by-file purpose and task (all scripts/assets)
+                - Section 22: Master file index table + workflow recap
+
+  2026-06-23  Rock type classification analysis (Section 23)
+                - Recommendation: stay single-class "rock" for current phase
+                - Documented future two-stage vs multi-class approaches
+                - Data requirements, benefits, limitations for mentors
+
+  2026-06-23  ONNX Pi deploy, dashboard, thermal imaging (Sections 25–27)
+                - Complete step-by-step ONNX deployment; inference_pi.py is Pi entry
+                - Dashboard: MJPEG browser stream (--stream), HDMI, offline video
+                - Thermal: not recommended for current phase; Phase 3 reference
+
+  (Add new dated entries below when scripts or decisions change)
+
+================================================================================
+END OF IMPLEMENTATION.txt
+================================================================================

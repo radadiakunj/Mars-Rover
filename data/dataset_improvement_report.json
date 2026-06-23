@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-06-05T14:23:09.245742+00:00",
+  "clean_labels": {
+    "files_checked": 318,
+    "annotations_removed": 6,
+    "files_emptied": 3
+  },
+  "negative_frames": {
+    "negative_frames_added": 35,
+    "files": [
+      "neg_mars_rocks_sample_f00000.jpg",
+      "neg_mars_rocks_sample_f00012.jpg",
+      "neg_mars_rocks_sample_f00024.jpg",
+      "neg_mars_rocks_sample_f00048.jpg",
+      "neg_mars_rocks_sample_f00060.jpg",
+      "neg_mars_rocks_sample_f00084.jpg",
+      "neg_mars_rocks_sample_f00108.jpg",
+      "neg_mars_rocks_sample_f00120.jpg",
+      "neg_mars_rocks_sample_f00144.jpg",
+      "neg_mars_rocks_sample_f00156.jpg",
+      "neg_mars_rocks_sample_f00168.jpg",
+      "neg_mars_rocks_sample_f00180.jpg",
+      "neg_mars_rocks_sample_f00192.jpg",
+      "neg_mars_rocks_sample_f00204.jpg",
+      "neg_mars_rocks_sample_f00216.jpg",
+      "neg_mars_rocks_sample_f00228.jpg",
+      "neg_mars_rocks_sample_f00252.jpg",
+      "neg_mars_rocks_sample_f00264.jpg",
+      "neg_mars_rocks_sample_f00276.jpg",
+      "neg_mars_rocks_sample_f00288.jpg",
+      "neg_mars_rocks_sample_f00300.jpg",
+      "neg_mars_rocks_sample_f00312.jpg",
+      "neg_mars_rocks_sample_f00324.jpg",
+      "neg_mars_rocks_sample_f00336.jpg",
+      "neg_mars_rocks_sample_f00348.jpg",
+      "neg_mars_rocks_sample_f00360.jpg",
+      "neg_mars_rocks_sample_f00372.jpg",
+      "neg_mars_rocks_sample_f00384.jpg",
+      "neg_mars_rocks_sample_f00396.jpg",
+      "neg_mars_rocks_sample_f00408.jpg",
+      "neg_mars_rocks_sample_f00420.jpg",
+      "neg_mars_rocks_sample_f00432.jpg",
+      "neg_mars_rocks_sample_f00444.jpg",
+      "neg_mars_rocks_sample_f00456.jpg",
+      "neg_mars_rocks_sample_f00468.jpg"
+    ]
+  },
+  "retrained": false,
+  "model": "D:\\Kunj\\Rover_Info\\YOLO_Object_Detection_Cursor\\models\\mars_rock_detector.pt",
+  "tips": [
+    "Negative frames have empty .txt label files \u2014 model learns 'no rock here'.",
+    "Review data/mars_rocks/train/images/neg_* and delete any that contain real rocks.",
+    "Re-run: python scripts/YOLO_Detection.py --save --show"
+  ]
+}

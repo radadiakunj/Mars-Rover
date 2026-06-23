@@ -1,0 +1,7 @@
+path: D:\Kunj\Rover_Info\YOLO_Object_Detection_Cursor\data\mars_rocks
+train: train/images
+val: valid/images
+test: test/images
+nc: 1
+names:
+  0: rock

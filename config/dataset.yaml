@@ -1,0 +1,11 @@
+# Mars rock detection — YOLO dataset config
+# Paths are resolved relative to this file after download/training scripts run.
+
+path: ../data/mars_rocks
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 1
+names:
+  0: rock

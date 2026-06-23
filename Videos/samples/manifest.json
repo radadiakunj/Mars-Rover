@@ -1,0 +1,32 @@
+[
+  {
+    "file": "01_mars_rover_rocks.mp4",
+    "description": "Mars rover rock field \u2014 primary reference clip",
+    "source": "GitHub Mars-Rock-Detection dataset"
+  },
+  {
+    "file": "02_mars_terrain_slideshow.mp4",
+    "description": "Labeled Mars terrain images \u2014 varied angles and lighting",
+    "source": "Training set slideshow"
+  },
+  {
+    "file": "03_nasa_mars_surface.mp4",
+    "description": "NASA Mars surface gallery \u2014 different resolutions and scenes",
+    "source": "NASA Images API"
+  },
+  {
+    "file": "05_rock_labeled_variety.mp4",
+    "description": "Random labeled rock scenes \u2014 mixed scales and backgrounds",
+    "source": "Training set (labeled rocks only)"
+  },
+  {
+    "file": "06_terrain_negative_test.mp4",
+    "description": "Mostly empty terrain \u2014 precision test (should detect few/no rocks)",
+    "source": "Negative training frames"
+  },
+  {
+    "file": "07_rover_pan_simulation.mp4",
+    "description": "Simulated rover forward motion via image pan \u2014 camera angle change",
+    "source": "Synthetic pan from Mars images"
+  }
+]

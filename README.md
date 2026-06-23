@@ -1,0 +1,43 @@
+# Mars-Rover
+
+YOLOv11-based Mars rock detection for a rover platform: train on labeled data, evaluate on video, deploy on Raspberry Pi 5 with an IMX219 stereo camera.
+
+## Features
+
+- Custom YOLO11 rock detector (nano + medium models)
+- Video inference with appearance/geometry filters
+- Curated evaluation video set (`Videos/eval/`)
+- Raspberry Pi live inference + MJPEG browser dashboard
+- ONNX export for lighter Pi deployment
+
+## Quick start
+
+```bash
+# Setup (Windows)
+.\scripts\setup_env.ps1
+
+# Train
+python scripts/train.py
+
+# Detect on video
+python scripts/detect_rocks.py --video Videos/eval/08_pi_closeup_rock_test.mp4 --model models/mars_rock_detector_m.pt --conf 0.35
+
+# Export ONNX (PC)
+python scripts/PT_to_ONNX.py --model models/mars_rock_detector_m.pt
+
+# Pi live inference + dashboard
+python scripts/inference_pi.py --model models/mars_rock_detector_m.onnx --conf 0.35 --no-filters --stream --port 8080
+```
+
+## Documentation
+
+See [Implementation.txt](Implementation.txt) for the full workflow, Pi deployment, dashboard setup, and architecture notes.
+
+## Models
+
+Trained weights (`.pt` / `.onnx`) are not in this repo due to size. Train locally with `scripts/train.py` or export with `scripts/PT_to_ONNX.py`.
+
+## Hardware
+
+- **Train/eval:** Windows PC with CUDA (optional)
+- **Deploy:** Raspberry Pi 5 + IMX219-83 stereo camera

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "02_mars_terrain_slideshow.mp4",
+    "role": "archived",
+    "reason": "Terrain slideshow — mixed scenes, not a clear-rock benchmark",
+    "description": "Labeled Mars terrain images slideshow"
+  },
+  {
+    "file": "03_nasa_mars_surface.mp4",
+    "role": "archived",
+    "reason": "Few visible rocks, mixed NASA gallery resolutions — poor generalization benchmark",
+    "description": "NASA Mars surface gallery"
+  },
+  {
+    "file": "06_terrain_negative_test.mp4",
+    "role": "archived",
+    "reason": "Precision / negative test — moved out of standard eval (optional precision check only)",
+    "description": "Mostly empty terrain"
+  },
+  {
+    "file": "07_rover_pan_simulation.mp4",
+    "role": "archived",
+    "reason": "Synthetic pan — camera motion artifact, not representative of real rover footage",
+    "description": "Simulated rover forward pan"
+  }
+]
