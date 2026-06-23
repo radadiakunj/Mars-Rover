@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-06-23T04:50:37.957057+00:00",
+  "eval_dir": "Videos\\eval",
+  "videos": [
+    "01_mars_rover_rocks.mp4",
+    "05_rock_labeled_variety.mp4"
+  ],
+  "conf": 0.4,
+  "models": [
+    {
+      "path": "models\\mars_rock_detector.pt",
+      "label": "mars_rock_detector",
+      "total_rocks_detected": 1424,
+      "total_frames": 988,
+      "per_video": [
+        {
+          "video": "01_mars_rover_rocks.mp4",
+          "frames": 748,
+          "rocks_detected": 295,
+          "raw_boxes": 296,
+          "filtered_pct": 0.3,
+          "avg_conf": 0.695,
+          "output": "Videos\\output\\evaluation\\yolo-nano\\01_mars_rover_rocks_detected.mp4",
+          "errors": []
+        },
+        {
+          "video": "05_rock_labeled_variety.mp4",
+          "frames": 240,
+          "rocks_detected": 1129,
+          "raw_boxes": 1138,
+          "filtered_pct": 0.8,
+          "avg_conf": 0.76,
+          "output": "Videos\\output\\evaluation\\yolo-nano\\05_rock_labeled_variety_detected.mp4",
+          "errors": []
+        }
+      ]
+    },
+    {
+      "path": "models\\mars_rock_detector_m.pt",
+      "label": "mars_rock_detector_m",
+      "total_rocks_detected": 1062,
+      "total_frames": 988,
+      "per_video": [
+        {
+          "video": "01_mars_rover_rocks.mp4",
+          "frames": 748,
+          "rocks_detected": 230,
+          "raw_boxes": 267,
+          "filtered_pct": 13.9,
+          "avg_conf": 0.658,
+          "output": "Videos\\output\\evaluation\\yolo-m\\01_mars_rover_rocks_detected.mp4",
+          "errors": []
+        },
+        {
+          "video": "05_rock_labeled_variety.mp4",
+          "frames": 240,
+          "rocks_detected": 832,
+          "raw_boxes": 841,
+          "filtered_pct": 1.1,
+          "avg_conf": 0.603,
+          "output": "Videos\\output\\evaluation\\yolo-m\\05_rock_labeled_variety_detected.mp4",
+          "errors": []
+        }
+      ]
+    }
+  ]
+}

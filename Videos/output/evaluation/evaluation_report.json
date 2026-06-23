@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-06-05T12:23:02.021525+00:00",
+  "model": "models\\mars_rock_detector.pt",
+  "device": "cpu",
+  "confidence_threshold": 0.35,
+  "videos": [
+    {
+      "video": "mars_rocks_sample.mp4",
+      "resolution": "1280x720",
+      "fps": 15.01,
+      "total_frames": 748,
+      "frames_with_detections": 748,
+      "frames_without_detections": 0,
+      "total_boxes": 4806,
+      "max_boxes_in_frame": 14,
+      "miss_frame_samples": [],
+      "avg_confidence": 0.628,
+      "min_confidence": 0.35,
+      "max_confidence": 0.985,
+      "detection_rate_pct": 100.0,
+      "avg_boxes_per_detected_frame": 6.43,
+      "output_video": "Videos\\output\\evaluation\\mars_rocks_sample_eval_detected.mp4"
+    },
+    {
+      "video": "mars_terrain_dataset.mp4",
+      "resolution": "480x480",
+      "fps": 10.0,
+      "total_frames": 600,
+      "frames_with_detections": 580,
+      "frames_without_detections": 20,
+      "total_boxes": 2600,
+      "max_boxes_in_frame": 32,
+      "miss_frame_samples": [
+        "mars_terrain_dataset_no_detect_f00135.jpg",
+        "mars_terrain_dataset_no_detect_f00136.jpg",
+        "mars_terrain_dataset_no_detect_f00137.jpg",
+        "mars_terrain_dataset_no_detect_f00138.jpg",
+        "mars_terrain_dataset_no_detect_f00139.jpg",
+        "mars_terrain_dataset_no_detect_f00145.jpg",
+        "mars_terrain_dataset_no_detect_f00146.jpg",
+        "mars_terrain_dataset_no_detect_f00147.jpg"
+      ],
+      "avg_confidence": 0.659,
+      "min_confidence": 0.35,
+      "max_confidence": 0.968,
+      "detection_rate_pct": 96.7,
+      "avg_boxes_per_detected_frame": 4.48,
+      "output_video": "Videos\\output\\evaluation\\mars_terrain_dataset_eval_detected.mp4"
+    }
+  ]
+}

@@ -9,16 +9,25 @@ data/raw/
 data/roboflow_staging/
 data/github_staging/
 data/rock_diversity_staging/
-Videos/output/
 data/video_staging/
 data/generalized_staging/
 runs/
-models/*.pt
-models/*.onnx
-!models/.gitkeep
 
+# Ignore generated outputs by default; allow demo eval artifacts below
+Videos/output/**
+!Videos/output/evaluation/
+!Videos/output/evaluation/*.json
+!Videos/output/01_mars_rover_rocks_detected.mp4
+!Videos/output/05_rock_labeled_variety_detected.mp4
+!Videos/output/08_pi_closeup_rock_test_detected.mp4
+!Videos/output/batch_detection_report.json
+
+# Ignore weight checkpoints except deployed rover models in models/
 *.pt
+!models/mars_rock_detector.pt
+!models/mars_rock_detector_m.pt
 *.onnx
+!models/mars_rock_detector_m.onnx
 yolo11*.pt
 yolov8*.pt
 

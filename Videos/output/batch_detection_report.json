@@ -1,0 +1,11 @@
+[
+  {
+    "video": "06_terrain_negative_test.mp4",
+    "output": "Videos\\output\\06_terrain_negative_test_detected.mp4",
+    "frames": 175,
+    "boxes_raw": 0,
+    "boxes_kept": 0,
+    "avg_conf": 0.0,
+    "errors": []
+  }
+]
