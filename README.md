@@ -41,3 +41,7 @@ Trained weights (`.pt` / `.onnx`) are not in this repo due to size. Train locall
 
 - **Train/eval:** Windows PC with CUDA (optional)
 - **Deploy:** Raspberry Pi 5 + IMX219-83 stereo camera
+
+## Legacy project files
+
+Earlier rover work (camera calibration, stereo capture, SLAM notes) is kept in `Docs/`, `Media/`, and `Scripts/` (capital S).
